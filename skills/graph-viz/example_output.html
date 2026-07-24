@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>secdesign 示例追溯图 — REQ-DEMO-001</title>
+<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #0d1117; color: #c9d1d9; overflow: hidden; display: flex; flex-direction: column; }
+
+#stats-bar { display: flex; align-items: center; gap: 16px; padding: 8px 16px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 13px; flex-shrink: 0; flex-wrap: wrap; }
+#stats-bar .stat-item { display: flex; align-items: center; gap: 4px; }
+#stats-bar .stat-label { color: #8b949e; }
+#stats-bar .stat-value { font-weight: 700; font-size: 15px; }
+#stats-bar .stat-value.cov { color: #58a6ff; }
+#stats-bar .stat-value.s1 { color: #f85149; }
+#stats-bar .stat-value.s2 { color: #d29922; }
+#stats-bar .req-info { margin-left: auto; color: #8b949e; font-size: 12px; }
+
+#pipeline-bar { display: flex; align-items: center; gap: 4px; padding: 6px 16px; background: #161b22; border-bottom: 1px solid #30363d; flex-shrink: 0; overflow-x: auto; white-space: nowrap; }
+#pipeline-bar .phase-label { color: #8b949e; font-size: 11px; margin-right: 8px; flex-shrink: 0; }
+.phase-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 11px; cursor: pointer; flex-shrink: 0; border: 1px solid #30363d; transition: all 0.2s; }
+.phase-chip:hover { border-color: #58a6ff; background: #1f2937; }
+.phase-chip.active { border-color: #58a6ff; background: #1a2332; box-shadow: 0 0 8px rgba(88,166,255,0.3); }
+.phase-chip .phase-num { color: #8b949e; }
+.phase-chip .phase-name { color: #c9d1d9; }
+
+#toolbar { display: flex; align-items: center; gap: 12px; padding: 6px 16px; background: #161b22; border-bottom: 1px solid #30363d; flex-shrink: 0; flex-wrap: wrap; }
+#toolbar .filter-group { display: flex; align-items: center; gap: 4px; }
+#toolbar .group-label { color: #8b949e; font-size: 11px; margin-right: 4px; }
+#toolbar .filter-btn { padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; transition: all 0.15s; }
+#toolbar .filter-btn:hover { border-color: #58a6ff; }
+#toolbar .filter-btn.active { border-color: #58a6ff; background: #1a2332; color: #58a6ff; }
+#toolbar .filter-btn .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+#toolbar select, #toolbar input { padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; }
+#toolbar .search-box { width: 180px; }
+#toolbar .layout-btn { margin-left: auto; }
+
+#main-layout { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+#cy-container { flex: 1; position: relative; min-width: 0; }
+#cy { width: 100%; height: 100%; position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+
+#legend { position: absolute; bottom: 12px; left: 12px; background: rgba(22,27,34,0.95); border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; font-size: 11px; max-height: 420px; overflow-y: auto; z-index: 100; max-width: 300px; }
+#legend .legend-title { font-weight: 700; margin-bottom: 6px; color: #58a6ff; cursor: pointer; }
+#legend .legend-section { margin-bottom: 8px; }
+#legend .legend-section h4 { font-size: 11px; color: #8b949e; margin-bottom: 3px; }
+#legend .legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+#legend .legend-shape { width: 14px; height: 14px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+#legend .legend-text { color: #c9d1d9; }
+#legend.collapsed .legend-body { display: none; }
+
+#side-panel { width: 400px; min-width: 400px; background: #161b22; border-left: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; }
+#side-panel .panel-section { border-bottom: 1px solid #30363d; }
+#side-panel .panel-header { padding: 8px 12px; font-size: 13px; font-weight: 700; color: #58a6ff; background: #161b22; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+#side-panel .panel-header .toggle { font-size: 10px; color: #8b949e; margin-left: auto; }
+#side-panel .panel-body { padding: 8px 12px; overflow-y: auto; }
+#side-panel .panel-body.collapsed { display: none; }
+
+#detail-panel .panel-body { flex: 1; }
+#detail-panel .detail-empty { color: #6e7681; font-size: 12px; text-align: center; padding: 20px; }
+#detail-panel .detail-id { font-size: 12px; color: #58a6ff; word-break: break-all; margin-bottom: 4px; }
+#detail-panel .detail-type { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 700; margin-bottom: 6px; }
+#detail-panel .detail-props .prop-row { display: flex; padding: 2px 0; border-bottom: 1px solid #21262d; }
+#detail-panel .detail-props .prop-key { color: #8b949e; width: 120px; flex-shrink: 0; }
+#detail-panel .detail-props .prop-val { color: #c9d1d9; word-break: break-all; }
+#detail-panel .detail-edges h4 { font-size: 11px; color: #8b949e; margin-bottom: 4px; margin-top: 8px; }
+#detail-panel .edge-item { font-size: 11px; padding: 3px 6px; margin-bottom: 2px; border-radius: 4px; background: #0d1117; border-left: 3px solid #30363d; cursor: pointer; transition: all 0.15s; }
+#detail-panel .edge-item:hover { background: #1f2937; }
+#detail-panel .edge-item .edge-type { font-weight: 700; }
+#detail-panel .edge-item .edge-target { color: #58a6ff; }
+
+#coverage-panel .cov-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px; }
+#coverage-panel .cov-cell { text-align: center; padding: 4px; border-radius: 4px; font-size: 11px; }
+#coverage-panel .cov-cell .cov-icon { font-size: 16px; }
+#coverage-panel .cov-cell .cov-count { font-weight: 700; font-size: 14px; }
+#coverage-panel .cov-cell.cov-ok { background: rgba(56,161,105,0.2); color: #38a169; }
+#coverage-panel .cov-cell.cov-partial { background: rgba(210,153,34,0.2); color: #d29922; }
+#coverage-panel .cov-cell.cov-none { background: rgba(248,81,73,0.2); color: #f85149; }
+#coverage-panel .cov-cell.cov-unknown { background: rgba(88,166,255,0.2); color: #58a6ff; }
+#coverage-panel .cov-cell.cov-pending { background: rgba(110,118,129,0.2); color: #6e7681; }
+
+#severity-panel .sev-bar { display: flex; gap: 2px; height: 20px; border-radius: 4px; overflow: hidden; margin-bottom: 4px; }
+#severity-panel .sev-segment { display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: white; transition: flex 0.3s; }
+#severity-panel .sev-labels { display: flex; gap: 8px; font-size: 10px; color: #8b949e; }
+#severity-panel .stride-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 8px; }
+#severity-panel .stride-cell { text-align: center; padding: 4px 2px; border-radius: 4px; font-size: 10px; background: #0d1117; }
+#severity-panel .stride-cell .stride-icon { font-size: 14px; }
+#severity-panel .stride-cell .stride-count { font-weight: 700; font-size: 13px; color: #c9d1d9; }
+</style>
+</head>
+<body>
+
+<div id="stats-bar"></div>
+<div id="pipeline-bar"><span class="phase-label">Pipeline:</span></div>
+<div id="toolbar"></div>
+
+<div id="main-layout">
+  <div id="cy-container">
+    <div id="cy"></div>
+    <div id="legend">
+      <div class="legend-title" onclick="document.getElementById('legend').classList.toggle('collapsed')">图例 ▾</div>
+      <div class="legend-body">
+        <div class="legend-section">
+          <h4>节点类型</h4>
+          <div class="legend-row"><span class="legend-shape" style="background:#4CAF50;border-radius:3px"></span><span class="legend-text">需求 (圆角矩形)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#2196F3;border-radius:3px"></span><span class="legend-text">安全预检 (圆角矩形)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#38a169;border-radius:50%"></span><span class="legend-text">攻击面 ✅已覆盖 (椭圆)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#d29922;border-radius:50%"></span><span class="legend-text">攻击面 ⚠️部分覆盖</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#f85149;border-radius:50%"></span><span class="legend-text">攻击面 ❌未覆盖</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#607D8B;border:1px dashed #8b949e"></span><span class="legend-text">文档分块 (矩形, 虚线)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#f85149;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></span><span class="legend-text">威胁 S1 严重 (菱形)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#d29922;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></span><span class="legend-text">威胁 S2 高 (菱形)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#e3b341;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></span><span class="legend-text">威胁 S3 中 (菱形)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#768390;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></span><span class="legend-text">威胁 S4 低 (菱形)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#9C27B0;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)"></span><span class="legend-text">安全检查点 (六边形)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#00BCD4;clip-path:polygon(0 0,100% 50%,0 100%,50% 50%)"></span><span class="legend-text">测试用例 (V形)</span></div>
+          <div class="legend-row"><span class="legend-shape" style="background:#795548;border-radius:3px"></span><span class="legend-text">覆盖率发现 (圆角矩形)</span></div>
+        </div>
+        <div class="legend-section">
+          <h4>边类型</h4>
+          <div class="legend-row"><span style="color:#4CAF50">━━</span><span class="legend-text">has_surface 需求→攻击面</span></div>
+          <div class="legend-row"><span style="color:#FF9800">━━</span><span class="legend-text">has_threat 攻击面→威胁</span></div>
+          <div class="legend-row"><span style="color:#9C27B0">━━</span><span class="legend-text">mapped_by 威胁→检查点</span></div>
+          <div class="legend-row"><span style="color:#00BCD4">━━</span><span class="legend-text">covers 测试用例→威胁</span></div>
+          <div class="legend-row"><span style="color:#607D8B">┄┄</span><span class="legend-text">traces_to 攻击面→文档</span></div>
+          <div class="legend-row"><span style="color:#4CAF50">┄┄</span><span class="legend-text">traces_to_req 检查点→需求</span></div>
+          <div class="legend-row"><span style="color:#795548">┈┈</span><span class="legend-text">checked_by 发现→检查点</span></div>
+          <div class="legend-row"><span style="color:#6e7681">┄┄</span><span class="legend-text">published_as 发布</span></div>
+          <div class="legend-row"><span style="color:#58a6ff">┈┈</span><span class="legend-text">audited_by 签核</span></div>
+        </div>
+        <div class="legend-section">
+          <h4>测试用例来源</h4>
+          <div class="legend-row"><span style="font-size:13px">📄</span><span class="legend-text">threat_derived 威胁推导</span></div>
+          <div class="legend-row"><span style="font-size:13px">🧠</span><span class="legend-text">llm_inferred LLM补充</span></div>
+          <div class="legend-row"><span style="font-size:13px">📋</span><span class="legend-text">rule_based 规则补充</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="side-panel">
+    <div id="detail-panel" class="panel-section" style="flex:1 1 auto; overflow:hidden; display:flex; flex-direction:column;">
+      <div class="panel-header">节点/边详情 <span class="toggle">▾</span></div>
+      <div class="panel-body" style="overflow-y:auto; flex:1;">
+        <div class="detail-empty">点击图中节点查看详情</div>
+      </div>
+    </div>
+    <div id="coverage-panel" class="panel-section">
+      <div class="panel-header">覆盖率矩阵 <span class="toggle">▾</span></div>
+      <div class="panel-body"></div>
+    </div>
+    <div id="severity-panel" class="panel-section">
+      <div class="panel-header">威胁分布 <span class="toggle">▾</span></div>
+      <div class="panel-body"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const graphData = {"requirement_id": "REQ-DEMO-001", "version": "1.1", "nodes": [{"id": "req-001", "type": "requirement", "name": "文件上传功能", "description": "用户头像上传", "scope": "interface"}, {"id": "assess-001", "type": "security_assessment", "name": "安全预检", "verdict": "proceed", "matched_categories": ["A3.2", "A2.1", "A4.2"]}, {"id": "as-001", "type": "attack_surface", "name": "A3.2文件上传下载", "category": "A3.2", "state": "✅", "checklist_items": 6}, {"id": "as-002", "type": "attack_surface", "name": "A2.1新增API", "category": "A2.1", "state": "⚠️", "checklist_items": 4}, {"id": "as-003", "type": "attack_surface", "name": "A4.2敏感数据存储", "category": "A4.2", "state": "❌", "checklist_items": 0}, {"id": "doc-001", "type": "doc_chunk", "name": "认证流程文档", "source_doc": "auth.docx", "section_path": "3.2"}, {"id": "t-001", "type": "threat", "name": "文件内容注入", "surface_id": "as-001", "stride_type": "T", "severity": "S2", "dread_total": 19}, {"id": "t-002", "type": "threat", "name": "路径穿越", "surface_id": "as-001", "stride_type": "I", "severity": "S3", "dread_total": 10}, {"id": "t-003", "type": "threat", "name": "无认证API访问", "surface_id": "as-002", "stride_type": "S", "severity": "S1", "dread_total": 22}, {"id": "t-004", "type": "threat", "name": "大文件DoS", "surface_id": "as-001", "stride_type": "D", "severity": "S4", "dread_total": 4}, {"id": "chk-001", "type": "security_check", "name": "文件类型白名单", "threat_id": "t-001", "layer": "KL-3", "check_item": "ASVS V12.1"}, {"id": "chk-002", "type": "security_check", "name": "路径规范化", "threat_id": "t-002", "layer": "KL-4", "check_item": "CWE-22"}, {"id": "chk-003", "type": "security_check", "name": "API认证校验", "threat_id": "t-003", "layer": "KL-3", "check_item": "ASVS V4.1"}, {"id": "tc-001", "type": "security_test", "name": "UC-FILE-001:Webshell上传", "threat_id": "t-001", "test_name": "Webshell上传验证", "source": "threat_derived"}, {"id": "tc-002", "type": "security_test", "name": "UC-FILE-002:路径穿越", "threat_id": "t-002", "test_name": "路径穿越测试", "source": "rule_based"}, {"id": "tc-003", "type": "security_test", "name": "UC-AC-001:无认证访问", "threat_id": "t-003", "test_name": "无Token访问API", "source": "threat_derived"}, {"id": "f-001", "type": "finding", "name": "A4.2无检查点", "target_id": "as-003", "dimension": "coverage", "verdict": "fail"}, {"id": "f-002", "type": "finding", "name": "A2.1缺测试用例", "target_id": "as-002", "dimension": "coverage", "verdict": "warn"}], "edges": [{"from": "req-001", "to": "as-001", "type": "has_surface"}, {"from": "req-001", "to": "as-002", "type": "has_surface"}, {"from": "req-001", "to": "as-003", "type": "has_surface"}, {"from": "as-001", "to": "doc-001", "type": "traces_to"}, {"from": "as-001", "to": "t-001", "type": "has_threat"}, {"from": "as-001", "to": "t-002", "type": "has_threat"}, {"from": "as-001", "to": "t-004", "type": "has_threat"}, {"from": "as-002", "to": "t-003", "type": "has_threat"}, {"from": "t-001", "to": "chk-001", "type": "mapped_by"}, {"from": "t-002", "to": "chk-002", "type": "mapped_by"}, {"from": "t-003", "to": "chk-003", "type": "mapped_by"}, {"from": "tc-001", "to": "t-001", "type": "covers"}, {"from": "tc-002", "to": "t-002", "type": "covers"}, {"from": "tc-003", "to": "t-003", "type": "covers"}, {"from": "f-001", "to": "as-003", "type": "checked_by"}, {"from": "f-002", "to": "as-002", "type": "checked_by"}, {"from": "chk-001", "to": "req-001", "type": "traces_to_req"}], "progress": {}};
+
+(function() {
+  const nodes = graphData.nodes || [];
+  const edges = graphData.edges || [];
+  const progress = graphData.progress || {};
+  const reqId = graphData.requirement_id || 'unknown';
+
+  const PHASE_ORDER = ['phase0','phase0.5','phase1','phase2','phase3','phase4','phase5','phase6','phase7'];
+  const PHASE_NAMES = {
+    'phase0':'需求获取','phase0.5':'安全预检','phase1':'攻击面识别','phase2':'威胁映射',
+    'phase3':'安全规格','phase4':'覆盖率检查','phase5':'测试用例','phase6':'安全评审','phase7':'报告发布'
+  };
+  const PHASE_NODE_TYPES = {
+    'phase0':['requirement'],'phase0.5':['security_assessment'],
+    'phase1':['attack_surface','doc_chunk'],'phase2':['threat'],
+    'phase3':['security_check'],'phase4':['finding'],'phase5':['security_test'],
+    'phase6':['finding'],'phase7':[]
+  };
+
+  const NODE_META = {
+    'requirement': {shape:'round-rectangle', color:'#4CAF50', icon:'📋'},
+    'security_assessment': {shape:'round-rectangle', color:'#2196F3', icon:'🔍'},
+    'attack_surface': {shape:'ellipse', color:'#FF9800', icon:'🎯'},
+    'doc_chunk': {shape:'rectangle', color:'#607D8B', icon:'📄'},
+    'threat': {shape:'diamond', color:'#d29922', icon:'⚠️'},
+    'security_check': {shape:'hexagon', color:'#9C27B0', icon:'✅'},
+    'security_test': {shape:'vee', color:'#00BCD4', icon:'🧪'},
+    'finding': {shape:'round-rectangle', color:'#795548', icon:'📋'},
+  };
+
+  const SEVERITY_COLORS = {
+    'S1':'#f85149','S2':'#d29922','S3':'#e3b341','S4':'#768390'
+  };
+  const STATE_COLORS = {
+    '✅':'#38a169','⚠️':'#d29922','❌':'#f85149','❓':'#58a6ff','⬜':'#6e7681'
+  };
+  const STRIDE_ICONS = {'S':'🎭','T':'✏️','R':'📝','I':'👁️','D':'🚫','E':'⬆️'};
+  const SOURCE_ICONS = {'threat_derived':'📄','llm_inferred':'🧠','rule_based':'📋'};
+
+  const EDGE_STYLES = {
+    'has_surface':   {color:'#4CAF50', style:'solid', width:3},
+    'has_threat':    {color:'#FF9800', style:'solid', width:2},
+    'mapped_by':     {color:'#9C27B0', style:'solid', width:2},
+    'covers':        {color:'#00BCD4', style:'solid', width:2},
+    'traces_to':     {color:'#607D8B', style:'dashed', width:1},
+    'traces_to_req': {color:'#4CAF50', style:'dashed', width:1},
+    'checked_by':    {color:'#795548', style:'dotted', width:1},
+    'published_as':  {color:'#6e7681', style:'dashed', width:1},
+    'audited_by':    {color:'#58a6ff', style:'dotted', width:1},
+  };
+
+  function getNodeColor(node) {
+    const t = node.type;
+    if (t === 'attack_surface') {
+      const state = node.state || node.status || '⬜';
+      return STATE_COLORS[state] || '#FF9800';
+    }
+    if (t === 'threat') {
+      return SEVERITY_COLORS[node.severity] || '#d29922';
+    }
+    if (t === 'finding') {
+      if (node.verdict === 'fail' || node.verdict === '❌') return '#f85149';
+      if (node.verdict === 'pass' || node.verdict === '✅') return '#38a169';
+      return '#795548';
+    }
+    const meta = NODE_META[t];
+    return meta ? meta.color : '#6e7681';
+  }
+
+  function getNodeShape(node) {
+    const meta = NODE_META[node.type];
+    return meta ? meta.shape : 'ellipse';
+  }
+
+  function getNodeLabel(node) {
+    const name = (node.name || node.id || '').replace(/"/g, "'");
+    const truncated = name.length > 45 ? name.substring(0, 45) + '..' : name;
+    let prefix = '';
+    if (node.type === 'threat' && node.stride_type) {
+      prefix = (STRIDE_ICONS[node.stride_type] || '') + ' ';
+    }
+    if (node.type === 'security_test' && node.source) {
+      prefix = (SOURCE_ICONS[node.source] || '') + ' ';
+    }
+    if (node.type === 'attack_surface') {
+      const state = node.state || node.status || '';
+      if (state) prefix = state + ' ';
+    }
+    return prefix + truncated;
+  }
+
+  function buildElements() {
+    const cyNodes = nodes.map(n => ({
+      data: {
+        id: n.id,
+        label: getNodeLabel(n),
+        nodeType: n.type,
+        ...n
+      }
+    }));
+    const cyEdges = edges.map((e, i) => ({
+      data: {
+        id: 'e' + i,
+        source: e.from,
+        target: e.to,
+        edgeType: e.type,
+        ...e
+      }
+    }));
+    return {nodes: cyNodes, edges: cyEdges};
+  }
+
+  function getEdgeStyle(edge) {
+    const et = edge.data.edgeType;
+    const s = EDGE_STYLES[et] || {color:'#6e7681', style:'solid', width:1};
+    const lineStyle = s.style === 'dashed' ? 'dashed' : s.style === 'dotted' ? 'dotted' : 'solid';
+    return {
+      'line-color': s.color,
+      'target-arrow-color': s.color,
+      'width': s.width,
+      'line-style': lineStyle,
+    };
+  }
+
+  const elems = buildElements();
+
+  const cy = cytoscape({
+    container: document.getElementById('cy'),
+    elements: elems,
+    style: [
+      {
+        selector: 'node',
+        style: {
+          'shape': 'data(shape)',
+          'background-color': function(ele) { return getNodeColor(ele.data()); },
+          'label': 'data(label)',
+          'color': '#fff',
+          'font-size': '10px',
+          'text-wrap': 'wrap',
+          'text-max-width': '140px',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-margin-y': 4,
+          'width': 36,
+          'height': 36,
+          'border-width': 2,
+          'border-color': '#30363d',
+        }
+      },
+      {
+        selector: 'node[type = "attack_surface"]',
+        style: { 'width': 44, 'height': 44, 'border-width': 3 }
+      },
+      {
+        selector: 'node[type = "threat"]',
+        style: { 'width': 40, 'height': 40, 'border-width': 3 }
+      },
+      {
+        selector: 'node[type = "doc_chunk"]',
+        style: { 'border-style': 'dashed', 'border-color': '#8b949e', 'opacity': 0.7 }
+      },
+      {
+        selector: 'node[severity = "S1"]',
+        style: { 'border-color': '#f85149', 'box-shadow': '0 0 8px #f85149' }
+      },
+      {
+        selector: 'edge',
+        style: {
+          'curve-style': 'bezier',
+          'target-arrow-shape': 'triangle',
+          'arrow-scale': 0.8,
+          'font-size': 9,
+          'text-rotation': 'autorotate',
+          'color': '#8b949e',
+          'opacity': 0.8,
+          ...{}
+        }
+      },
+      {
+        selector: 'edge[edgeType = "has_surface"]',
+        style: getEdgeStyle({data:{edgeType:'has_surface'}})
+      },
+      {
+        selector: 'edge[edgeType = "has_threat"]',
+        style: getEdgeStyle({data:{edgeType:'has_threat'}})
+      },
+      {
+        selector: 'edge[edgeType = "mapped_by"]',
+        style: getEdgeStyle({data:{edgeType:'mapped_by'}})
+      },
+      {
+        selector: 'edge[edgeType = "covers"]',
+        style: getEdgeStyle({data:{edgeType:'covers'}})
+      },
+      {
+        selector: 'edge[edgeType = "traces_to"]',
+        style: getEdgeStyle({data:{edgeType:'traces_to'}})
+      },
+      {
+        selector: 'edge[edgeType = "traces_to_req"]',
+        style: getEdgeStyle({data:{edgeType:'traces_to_req'}})
+      },
+      {
+        selector: 'edge[edgeType = "checked_by"]',
+        style: getEdgeStyle({data:{edgeType:'checked_by'}})
+      },
+      {
+        selector: 'edge[edgeType = "published_as"]',
+        style: getEdgeStyle({data:{edgeType:'published_as'}})
+      },
+      {
+        selector: 'edge[edgeType = "audited_by"]',
+        style: getEdgeStyle({data:{edgeType:'audited_by'}})
+      },
+      {
+        selector: '.highlighted',
+        style: { 'border-color': '#58a6ff', 'border-width': 4, 'opacity': 1, 'z-index': 999 }
+      },
+      {
+        selector: '.faded',
+        style: { 'opacity': 0.15 }
+      },
+      {
+        selector: '.phase-highlight',
+        style: { 'border-color': '#58a6ff', 'opacity': 1 }
+      },
+    ],
+    layout: {
+      name: 'breadthfirst',
+      directed: true,
+      padding: 80,
+      spacingFactor: 1.2,
+      roots: nodes.filter(n => n.type === 'requirement').map(n => n.id),
+    }
+  });
+
+  cy.ready(function() {
+    cy.nodes().forEach(function(n) {
+      n.style('shape', getNodeShape(n.data()));
+    });
+  });
+
+  // ====== 统计栏 ======
+  function renderStats() {
+    const counts = {};
+    nodes.forEach(n => { counts[n.type] = (counts[n.type]||0)+1; });
+    const surfaces = nodes.filter(n => n.type === 'attack_surface');
+    const covered = surfaces.filter(n => (n.state||n.status) === '✅').length;
+    const total = surfaces.length;
+    const covPct = total > 0 ? Math.round(covered/total*100) : 0;
+    const s1Count = nodes.filter(n => n.type==='threat' && n.severity==='S1').length;
+    const s2Count = nodes.filter(n => n.type==='threat' && n.severity==='S2').length;
+
+    document.getElementById('stats-bar').innerHTML = `
+      <div class="stat-item"><span class="stat-label">节点</span><span class="stat-value">${nodes.length}</span></div>
+      <div class="stat-item"><span class="stat-label">边</span><span class="stat-value">${edges.length}</span></div>
+      <div class="stat-item"><span class="stat-label">攻击面</span><span class="stat-value">${counts['attack_surface']||0}</span></div>
+      <div class="stat-item"><span class="stat-label">威胁</span><span class="stat-value">${counts['threat']||0}</span></div>
+      <div class="stat-item"><span class="stat-label">检查点</span><span class="stat-value">${counts['security_check']||0}</span></div>
+      <div class="stat-item"><span class="stat-label">测试用例</span><span class="stat-value">${counts['security_test']||0}</span></div>
+      <div class="stat-item"><span class="stat-label">覆盖率</span><span class="stat-value cov">${covPct}%</span></div>
+      ${s1Count>0?`<div class="stat-item"><span class="stat-label">S1</span><span class="stat-value s1">${s1Count}</span></div>`:''}
+      ${s2Count>0?`<div class="stat-item"><span class="stat-label">S2</span><span class="stat-value s2">${s2Count}</span></div>`:''}
+      <div class="req-info">需求: ${reqId}</div>
+    `;
+  }
+
+  // ====== Pipeline 时间轴 ======
+  function renderPipeline() {
+    const bar = document.getElementById('pipeline-bar');
+    PHASE_ORDER.forEach(ph => {
+      const chip = document.createElement('span');
+      chip.className = 'phase-chip';
+      chip.innerHTML = `<span class="phase-num">${ph.replace('phase','P')}</span><span class="phase-name">${PHASE_NAMES[ph]||ph}</span>`;
+      const phStatus = progress.phases ? progress.phases[ph] : null;
+      if (phStatus === 'completed') chip.style.borderColor = '#38a169';
+      else if (phStatus === 'in_progress') chip.style.borderColor = '#d29922';
+      else if (phStatus === 'WARNING') chip.style.borderColor = '#f85149';
+
+      chip.onclick = function() {
+        document.querySelectorAll('.phase-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        highlightPhase(ph);
+      };
+      bar.appendChild(chip);
+    });
+  }
+
+  function highlightPhase(ph) {
+    const types = PHASE_NODE_TYPES[ph] || [];
+    cy.nodes().removeClass('phase-highlight faded');
+    cy.edges().removeClass('faded');
+    if (types.length === 0) {
+      cy.nodes().removeClass('faded');
+      cy.edges().removeClass('faded');
+      return;
+    }
+    cy.nodes().forEach(n => {
+      if (types.includes(n.data('type'))) {
+        n.addClass('phase-highlight');
+        n.removeClass('faded');
+      } else {
+        n.addClass('faded');
+      }
+    });
+    cy.edges().forEach(e => {
+      const srcType = cy.getElementById(e.data('source')).data('type');
+      const tgtType = cy.getElementById(e.data('target')).data('type');
+      if (types.includes(srcType) || types.includes(tgtType)) {
+        e.removeClass('faded');
+      } else {
+        e.addClass('faded');
+      }
+    });
+  }
+
+  // ====== 工具栏 ======
+  function renderToolbar() {
+    const tb = document.getElementById('toolbar');
+
+    const nodeTypes = ['requirement','security_assessment','attack_surface','threat','security_check','security_test','doc_chunk','finding'];
+    const grp1 = document.createElement('div');
+    grp1.className = 'filter-group';
+    grp1.innerHTML = '<span class="group-label">节点:</span>';
+    nodeTypes.forEach(t => {
+      const btn = document.createElement('button');
+      btn.className = 'filter-btn node-btn active';
+      const meta = NODE_META[t];
+      btn.innerHTML = `<span class="dot" style="background:${meta?meta.color:'#6e7681'}"></span>${t.replace(/_/g,' ')}`;
+      btn.onclick = function() {
+        btn.classList.toggle('active');
+        const active = btn.classList.contains('active');
+        cy.nodes().forEach(n => {
+          if (n.data('type') === t) n.style('display', active?'element':'none');
+        });
+      };
+      grp1.appendChild(btn);
+    });
+    tb.appendChild(grp1);
+
+    const strides = ['S','T','R','I','D','E'];
+    const grp2 = document.createElement('div');
+    grp2.className = 'filter-group';
+    grp2.innerHTML = '<span class="group-label">STRIDE:</span>';
+    strides.forEach(s => {
+      const btn = document.createElement('button');
+      btn.className = 'filter-btn active';
+      btn.textContent = STRIDE_ICONS[s] + s;
+      btn.onclick = function() {
+        btn.classList.toggle('active');
+        const active = btn.classList.contains('active');
+        cy.nodes().forEach(n => {
+          if (n.data('type') === 'threat' && n.data('stride_type') === s) {
+            n.style('display', active?'element':'none');
+          }
+        });
+      };
+      grp2.appendChild(btn);
+    });
+    tb.appendChild(grp2);
+
+    const search = document.createElement('input');
+    search.className = 'search-box';
+    search.placeholder = '搜索节点...';
+    search.oninput = function() {
+      const q = search.value.toLowerCase();
+      cy.nodes().forEach(n => {
+        const name = (n.data('name')||'').toLowerCase();
+        const id = (n.data('id')||'').toLowerCase();
+        if (q === '' || name.includes(q) || id.includes(q)) {
+          n.removeClass('faded');
+        } else {
+          n.addClass('faded');
+        }
+      });
+    };
+    tb.appendChild(search);
+
+    const layoutBtn = document.createElement('select');
+    layoutBtn.className = 'layout-btn';
+    layoutBtn.innerHTML = '<option value="breadthfirst">层次布局</option><option value="circle">圆形布局</option><option value="concentric">同心圆</option><option value="cose">力导向</option>';
+    layoutBtn.onchange = function() {
+      const opt = layoutBtn.value;
+      const roots = cy.nodes().filter(n => n.data('type')==='requirement').map(n => n.id());
+      cy.layout({
+        name: opt,
+        directed: true,
+        padding: 80,
+        spacingFactor: 1.2,
+        roots: opt === 'breadthfirst' ? roots : undefined,
+        fit: true,
+      }).run();
+    };
+    tb.appendChild(layoutBtn);
+  }
+
+  // ====== 详情面板 ======
+  function showNodeDetail(node) {
+    const panel = document.querySelector('#detail-panel .panel-body');
+    const d = node.data();
+    const meta = NODE_META[d.type] || {color:'#6e7681', icon:'❓'};
+    let html = `<div class="detail-id">${d.id}</div>`;
+    html += `<div class="detail-type" style="background:${meta.color};color:white">${meta.icon} ${d.type}</div>`;
+    html += '<div class="detail-props">';
+    const priorityFields = ['id','name','type','category','scope','verdict','state','status','stride_type','severity','dread_total','surface_id','threat_id','layer','source','check_item','test_name','cwe','owasp','attack_patterns','mitigation'];
+    const shown = new Set();
+    priorityFields.forEach(k => {
+      if (d[k] !== undefined && d[k] !== null && d[k] !== '') {
+        let val = d[k];
+        if (Array.isArray(val)) val = val.join(', ');
+        html += `<div class="prop-row"><span class="prop-key">${k}</span><span class="prop-val">${val}</span></div>`;
+        shown.add(k);
+      }
+    });
+    Object.keys(d).forEach(k => {
+      if (!shown.has(k) && k !== 'label' && k !== 'nodeType' && typeof d[k] !== 'object') {
+        html += `<div class="prop-row"><span class="prop-key">${k}</span><span class="prop-val">${d[k]}</span></div>`;
+      }
+    });
+    html += '</div>';
+
+    const connected = node.connectedEdges();
+    if (connected.length > 0) {
+      html += '<div class="detail-edges"><h4>关联边 (' + connected.length + ')</h4>';
+      connected.forEach(e => {
+        const isSource = e.data('source') === d.id;
+        const otherId = isSource ? e.data('target') : e.data('source');
+        const other = cy.getElementById(otherId);
+        const otherName = other.data('name') || otherId;
+        html += `<div class="edge-item" data-edge-id="${e.id()}"><span class="edge-dir">${isSource?'→':'←'}</span> <span class="edge-type">${e.data('type')}</span> <span class="edge-target">${otherName}</span></div>`;
+      });
+      html += '</div>';
+    }
+    panel.innerHTML = html;
+
+    panel.querySelectorAll('.edge-item').forEach(item => {
+      item.onclick = function() {
+        const eid = this.getAttribute('data-edge-id');
+        const e = cy.getElementById(eid);
+        if (e && e.length > 0) {
+          cy.animate({center:{eles:e}, zoom:1.5}, {duration:300});
+          showEdgeDetail(e);
+        }
+      };
+    });
+  }
+
+  function showEdgeDetail(edge) {
+    const panel = document.querySelector('#detail-panel .panel-body');
+    const d = edge.data();
+    let html = `<div class="detail-id">边: ${d.source} → ${d.target}</div>`;
+    html += `<div class="detail-type" style="background:#30363d;color:white">${d.type}</div>`;
+    html += '<div class="detail-props">';
+    Object.keys(d).forEach(k => {
+      if (k !== 'id' && k !== 'source' && k !== 'target' && k !== 'label' && k !== 'edgeType' && typeof d[k] !== 'object') {
+        html += `<div class="prop-row"><span class="prop-key">${k}</span><span class="prop-val">${d[k]}</span></div>`;
+      }
+    });
+    html += '</div>';
+    panel.innerHTML = html;
+  }
+
+  // ====== 覆盖率面板 ======
+  function renderCoverage() {
+    const surfaces = nodes.filter(n => n.type === 'attack_surface');
+    const states = {'✅':0,'⚠️':0,'❌':0,'❓':0,'⬜':0};
+    surfaces.forEach(s => {
+      const st = s.state || s.status || '⬜';
+      states[st] = (states[st]||0)+1;
+    });
+    const total = surfaces.length;
+    const pct = total > 0 ? Math.round(states['✅']/total*100) : 0;
+
+    const panel = document.querySelector('#coverage-panel .panel-body');
+    panel.innerHTML = `
+      <div style="font-size:12px;color:#8b949e;margin-bottom:6px">攻击面总数: ${total} | 覆盖率: ${pct}%</div>
+      <div class="cov-grid">
+        <div class="cov-cell cov-ok"><div class="cov-icon">✅</div><div class="cov-count">${states['✅']}</div></div>
+        <div class="cov-cell cov-partial"><div class="cov-icon">⚠️</div><div class="cov-count">${states['⚠️']}</div></div>
+        <div class="cov-cell cov-none"><div class="cov-icon">❌</div><div class="cov-count">${states['❌']}</div></div>
+        <div class="cov-cell cov-unknown"><div class="cov-icon">❓</div><div class="cov-count">${states['❓']}</div></div>
+        <div class="cov-cell cov-pending"><div class="cov-icon">⬜</div><div class="cov-count">${states['⬜']}</div></div>
+      </div>
+    `;
+  }
+
+  // ====== 威胁分布面板 ======
+  function renderSeverity() {
+    const threats = nodes.filter(n => n.type === 'threat');
+    const sevs = {'S1':0,'S2':0,'S3':0,'S4':0};
+    threats.forEach(t => { sevs[t.severity] = (sevs[t.severity]||0)+1; });
+    const total = threats.length;
+
+    const strides = {'S':0,'T':0,'R':0,'I':0,'D':0,'E':0};
+    threats.forEach(t => { strides[t.stride_type] = (strides[t.stride_type]||0)+1; });
+
+    const panel = document.querySelector('#severity-panel .panel-body');
+    let barHtml = '<div class="sev-bar">';
+    const sevColors = {'S1':'#f85149','S2':'#d29922','S3':'#e3b341','S4':'#768390'};
+    ['S1','S2','S3','S4'].forEach(s => {
+      if (sevs[s] > 0) {
+        const pct = total > 0 ? sevs[s]/total*100 : 0;
+        barHtml += `<div class="sev-segment" style="background:${sevColors[s]};flex:${pct}">${sevs[s]}</div>`;
+      }
+    });
+    barHtml += '</div>';
+    barHtml += '<div class="sev-labels">';
+    ['S1','S2','S3','S4'].forEach(s => {
+      barHtml += `<span style="color:${sevColors[s]}">${s}: ${sevs[s]}</span>`;
+    });
+    barHtml += '</div>';
+
+    let strideHtml = '<div class="stride-grid">';
+    ['S','T','R','I','D','E'].forEach(s => {
+      strideHtml += `<div class="stride-cell"><div class="stride-icon">${STRIDE_ICONS[s]}</div><div class="stride-count">${strides[s]}</div></div>`;
+    });
+    strideHtml += '</div>';
+
+    panel.innerHTML = `<div style="font-size:12px;color:#8b949e;margin-bottom:6px">威胁总数: ${total}</div>${barHtml}${strideHtml}`;
+  }
+
+  // ====== 事件绑定 ======
+  cy.on('tap', 'node', function(evt) {
+    showNodeDetail(evt.target);
+  });
+  cy.on('tap', 'edge', function(evt) {
+    showEdgeDetail(evt.target);
+  });
+  cy.on('tap', function(evt) {
+    if (evt.target === cy) {
+      document.querySelector('#detail-panel .panel-body').innerHTML = '<div class="detail-empty">点击图中节点查看详情</div>';
+      cy.nodes().removeClass('faded phase-highlight');
+      cy.edges().removeClass('faded');
+    }
+  });
+  cy.on('dbltap', 'node', function(evt) {
+    const node = evt.target;
+    if (node.data('type') === 'attack_surface') {
+      const connected = node.closedNeighborhood();
+      cy.elements().removeClass('highlighted faded');
+      cy.elements().not(connected).addClass('faded');
+      connected.addClass('highlighted');
+    }
+  });
+
+  // ====== 面板折叠 ======
+  document.querySelectorAll('#side-panel .panel-header').forEach(h => {
+    h.onclick = function() {
+      const body = this.nextElementSibling;
+      body.classList.toggle('collapsed');
+      const toggle = this.querySelector('.toggle');
+      toggle.textContent = body.classList.contains('collapsed') ? '▸' : '▾';
+    };
+  });
+
+  // ====== 初始化 ======
+  renderStats();
+  renderPipeline();
+  renderToolbar();
+  renderCoverage();
+  renderSeverity();
+
+  console.log('secdesign graph viz loaded:', nodes.length, 'nodes,', edges.length, 'edges');
+})();
+</script>
+</body>
+</html>
